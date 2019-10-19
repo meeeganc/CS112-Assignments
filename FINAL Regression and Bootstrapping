@@ -1,0 +1,381 @@
+
+##### QUESTION 1 #####
+
+set.seed(520)
+
+#generating 998 variables with mean 0 and sd of 1
+x <- rnorm(998)
+#equation with random noise added by rnorm
+y <- -0.5*x + 5 + rnorm(998, 0, 0.5)
+
+#creating data frame of values and fitting regression model
+df.998 <- data.frame(x, y)
+lm.998 <- lm(y ~ x, data = df.998)
+summary(lm.998)
+
+#adding 2 outliers to the data 
+
+df.with.outliers <- rbind(df.998, c(-20, -10))
+df.with.outliers <- rbind(df.with.outliers, c(20, 100))
+
+#fitting regression line with outliers
+lm.outliers <- lm(y ~ x, df.with.outliers)
+summary(lm.outliers )
+
+#creating graph with 2 regression lines. Blue for original data set
+#red line for regression with outliers included
+plot(df.998,
+     main = "Effect of Outliers on Regression Models",
+     xlab = "x",
+     ylab = "y")
+abline(a = coef(lm.998[1]),
+       b = coef(lm.998[2]),
+       col = "blue")
+abline(a = coef(lm.outliers[1]),
+       b = coef(lm.outliers[2]),
+       col = "red")
+
+summary(lm.outliers)     
+summary(lm.998)
+
+
+##### QUESTION 2 #####
+
+#installing package and loading dataset 
+install.packages("Matching")
+install.packages("MASS")
+
+library(Matching)
+library(arm)
+
+data("lalonde")
+View(lalonde)
+typeof(lalonde$treat)
+
+#adding in age^2 column:
+
+lalonde <- cbind(lalonde, "age.squared" = lalonde$age^2)
+
+View(lalonde)
+
+#effect on re78 
+lm.lalonde <- lm(re78 ~ age + age.squared + educ + treat + treat*age + re74 + re75, data = lalonde)
+summary(lm.lalonde)
+
+iterations <- 10000
+sim.lalonde <- sim(lm.lalonde, n.sims = iterations)
+  
+#creating new object to store only treated units
+treated <- lalonde[(which(lalonde$treat == 1)), ]
+View(treated)
+
+#holding educ, re74 and re75 at their means
+simulated.ys.means <- matrix(NA, nrow = iterations, 
+                                ncol = length(min(lalonde$age):max(lalonde$age)))
+  
+mean.educ.treated <- mean(treated$educ)
+mean.re74.treated <- mean(treated$re74)
+mean.re75.treated <- mean(treated$re75)
+
+for (a in min(lalonde$age):max(lalonde$age)){
+  X.treat <- c(1, a, a^2, mean.educ.treated, 1, mean.re74.treated, mean.re75.treated, 1*a)
+  for (i in 1:iterations) {
+    simulated.ys.means[i, age + 1 - min(lalonde$age)] <- sum(X.treat*sim.lalonde@coef[i, ])
+  }
+}
+  
+View(simulated.ys.means)
+
+#95 percent confidence intervals
+confint.treated <- apply(simulated.ys.means, 2, quantile, probs = c(0.025, 0.975))
+table.treated <- t(data.frame(confint.treated))
+
+##ADD LABELS
+View(table.treated)
+View(lalonde$re78)
+
+## Control Units ##
+
+control <- lalonde[(which(lalonde$treat == 0)), ]
+
+control.simulated.ys.means <- matrix(NA, nrow = iterations, 
+                             ncol = length(min(lalonde$age):max(lalonde$age)))
+
+mean.educ.control <- mean(control$educ)
+mean.re74.control <- mean(control$re74)
+mean.re75.control <- mean(control$re75)
+
+for (a in min(lalonde$age):max(lalonde$age)) {
+  X.control <- c(1, a, a^2, mean.educ.control, 0, mean.re74.control, mean.re75.control, a*0)
+  for (i in 1:iterations) {
+    control.simulated.ys.means[i, a + 1 - min(lalonde$age)] <- sum(X.control*sim.lalonde@coef[i, ])
+  }
+}
+
+confint.control <- apply(control.simulated.ys.means, 2, quantile, probs = c(0.025, 0.975))
+table.control <- t(data.frame(confint.control))
+
+##ADD LABELS
+View(table.control)
+
+
+## treatment effect ##
+
+treat.effect <- matrix(NA, nrow = iterations, 
+                       ncol = length(min(lalonde$age):max(lalonde$age)))
+
+for (a in min(lalonde$age):max(lalonde$age)){
+  X.treat <- c(1, a, a^2, mean.educ.treated, 1, mean.re74.treated, mean.re75.treated, 1*a)
+  X.control <- c(1, a, a^2, mean.educ.control, 0, mean.re74.control, mean.re75.control, 0*a)
+  for(i in 1:iterations) {
+    treat.effect[i, a + 1 - min(lalonde$age)] <- sum(X.treat*sim.lalonde@coef[i, ]) - 
+      sum(X.control*sim.lalonde@coef[i, ])
+  }
+}
+
+View(treat.effect)
+confint.treatment.effect <- apply(treat.effect, 2, quantile, probs = c(0.025, 0.975))
+table.treatment.effect <- t(data.frame(confint.treatment.effect))
+
+View(table.treatment.effect)
+
+## treatment effect with sigmas ## 
+
+median.educ <- median(treated$educ)
+median.re74 <- median(treated$re74)
+median.re75 <- median(treated$re75)
+
+median.educ.control <- median(control$educ)
+median.re74.control <- median(control$re74)
+median.re75.control <- median(control$re75)
+
+treat.effect.2 <- matrix(NA, nrow = iterations, 
+                       ncol = length(min(lalonde$age):max(lalonde$age)))
+
+for (a in min(lalonde$age):max(lalonde$age)){
+  X.treat <- c(1, a, a^2, median.educ, 1, median.re74, median.re75, 1*a)
+  X.control <- c(1, a, a^2, median.educ.control, 0, median.re74.control, median.re75.control, 0*a)
+  for(i in 1:iterations) {
+    treat.effect.2[i, a + 1 - min(lalonde$age)] <- (sum(X.treat*sim.lalonde@coef[i, ]) - (sum(X.control*sim.lalonde@coef[i, ]))) +
+      rnorm(1, 0, sim.lalonde@sigma[i])
+  }
+}
+
+confint.treatment.effect.2 <- apply(treat.effect.2, 2, quantile, probs = c(0.025, 0.975))
+table.treatment.effect.2 <- t(data.frame(confint.treatment.effect.2))
+
+View(table.treatment.effect.2)
+
+##### PLOTS #####
+
+#####
+#PLOT 1#
+#####
+plot(x = c(1:100), y = c(1:100), type = "n", 
+     xlim = c(min(lalonde$age),max(lalonde$age)), 
+     ylim = c(-10000,20000), 
+     main = "Re78 of Treated Units by Age With Predictors Held at Means", xlab = "Age", 
+     ylab = "Re78")
+
+
+for (age in min(lalonde$age):max(lalonde$age)) {
+  segments(
+    x0 = age,
+    y0 = confint.treated[1, age - min(lalonde$age) + 1],
+    x1 = age,
+    y1 = confint.treated[2, age - min(lalonde$age) + 1],
+    lwd = 2)
+}
+
+#PLOT 2#
+
+plot(x = c(1:100), y = c(1:100), type = "n", 
+     xlim = c(min(lalonde$age),max(lalonde$age)), 
+     ylim = c(-10000,20000), 
+     main = "Re78 of Control Units by Age With Predictors Held at Means", xlab = "Age", 
+     ylab = "Re78")
+
+
+for (age in min(control$age):max(lalonde$age)) {
+  segments(
+    x0 = age,
+    y0 = confint.treated[1, age - min(lalonde$age) + 1],
+    x1 = age,
+    y1 = confint.treated[2, age - min(lalonde$age) + 1],
+    lwd = 2)
+}
+
+#PLOT 3#
+plot(x = c(1:100), y = c(1:100), type = "n", 
+     xlim = c(min(lalonde$age),max(lalonde$age)), 
+     ylim = c(-10000,20000), 
+     main = "Re78 of Treatment Effect by Age With Predictors Held at Means", xlab = "Age", 
+     ylab = "Re78")
+
+
+for (age in min(control$age):max(lalonde$age)) {
+  segments(
+    x0 = age,
+    y0 = confint.treatment.effect[1, age - min(lalonde$age) + 1],
+    x1 = age,
+    y1 = confint.treatment.effect[2, age - min(lalonde$age) + 1],
+    lwd = 2)
+}
+
+#PLOT 4 #
+plot(x = c(1:100), y = c(1:100), type = "n", 
+     xlim = c(min(lalonde$age),max(lalonde$age)), 
+     ylim = c(-25000,25000), 
+     main = "Re78 of Treatment Effect by Age With Predictors Held at Medians", xlab = "Age", 
+     ylab = "Re78")
+
+
+for (age in min(control$age):max(lalonde$age)) {
+  segments(
+    x0 = age,
+    y0 = confint.treatment.effect.2[1, age - min(lalonde$age) + 1],
+    x1 = age,
+    y1 = confint.treatment.effect.2[2, age - min(lalonde$age) + 1],
+    lwd = 2)
+}
+
+######  QUESTION 3 #######
+
+#importing data set
+foo <- read.csv(url("https://tinyurl.com/y2prc9xq"))
+
+#Creating regression model with math score as dependent and treatment as independent
+reg.afterschool <- lm(MATH_SCORE ~ TREATMENT, data = foo)
+
+
+#create storage vector to store bootstrapped data from the for loop
+#vector with 1000 rows of NA
+school.iterations <- 1000
+storage <- rep(NA, school.iterations)
+
+#Bootstrapping function
+#Samples from data with replacement and stores results (coefficients) in the storage vector 
+for (i in 1:iterations) {
+  temp_reg <- lm(MATH_SCORE ~ TREATMENT, data = foo[sample(1:nrow(foo), nrow(foo), replace = T), ] )
+  storage[i] <- temp_reg$coefficients[2]
+}
+
+#confidence interval of the storage vector 
+bootstrap.CI <- quantile(storage, c(0.025, 0.975))
+
+#Comparing bootstrapped CI to the CI provided from the regression:
+reg.afterschool <- lm(MATH_SCORE ~ TREATMENT, data = foo)
+summary(reg.afterschool)
+reg.CI <- confint(reg.afterschool)[2,]
+
+
+h.boot <- hist(storage, main = "Histogram of Bootstrapped Confidence Interval",
+               xlab = "Value of Coefficient for Treatment", col = "skyblue") 
+
+
+##### QUESTION 4 #####
+
+# Boostrap function for calculating r^2
+r_squared <- function(Ys, Ys.predicted) {
+  iterations <- 200000
+  storage <- rep(NA, iterations)
+  for (i in 1:iterations){
+    indices <- sample(1:length(Ys), length(Ys), replace = T)
+    new_true_y <- Ys[indices]
+    new_pred_y <- Ys.predicted[indices]
+    rss <- sum((new_true_y - new_pred_y)**2)
+    tss <- sum((new_true_y - mean(new_true_y))**2)
+    storage[i] <- (1 - rss/tss)
+  }
+  return(mean(storage))
+}
+
+#running on afterschool data
+afterschool_na.math <- foo[!is.na(foo$MATH_SCORE), ]
+lm.afterschool <- lm(MATH_SCORE ~ TREATMENT, data = afterschool_na.math)
+
+# R squared by bootstrp
+r_squared(afterschool_na.math$MATH_SCORE, lm.afterschool$fitted.values)
+# R squared through reg
+summary(lm(MATH_SCORE ~ TREATMENT , data = foo))$r.squared 
+
+##### QUESTION 5 #####
+
+library(Matching)
+library(boot)
+
+#importing data from URL
+nsw.data <- read.csv(url("https://tinyurl.com/yx8tqf3k"))
+
+set.seed(12345)
+
+#test set data with 2000 values pulled from the original data and set aside 
+test_set_rows <- sample(1:length(nsw.data$age), 2000, replace = FALSE)
+test_set_data <- nsw.data[test_set_rows, ]
+
+#data set minus the test set rows
+foo2 <- nsw.data[-test_set_rows, ]
+
+###### model 1 #####
+lm.1 <- glm(treat ~ age + education, data = foo2, family = "binomial")
+cv.err <- cv.glm(foo2, lm.1)
+
+#LOOCV MSE
+cv.MSE.1 <- cv.err$delta[1]
+cv.MSE.1
+
+#actual model
+predict.lm1 <- predict(lm.1, test_set_data, type = "response")
+
+MSE.1 <- mean((test_set_data$treat - predict.lm1)**2)
+MSE.1
+
+##### model 2 #####
+
+lm.2 <- glm(treat ~ education + married*age + hispanic, data = foo2, family = "binomial")
+cv.err.2 <- cv.glm(foo2, lm.2)
+
+cv.MSE.2 <- cv.err.2$delta[1]
+cv.MSE.2
+
+predict.lm2 <- predict(lm.2, test_set_data, type = "response")
+
+MSE.2 <- mean((test_set_data$treat - predict.lm2)**2)
+MSE.2
+
+#### model 3 #####
+
+lm.3 <- glm(treat ~ education^2 + age*education + age^2, data = foo2, family = "binomial") 
+cv.err.3 <- cv.glm(foo2, lm.3)
+
+cv.MSE.3 <- cv.err.3$delta[1]
+cv.MSE.3
+
+predict.lm3 <- predict(lm.3, test_set_data, type = "response")
+MSE.3 <- mean((test_set_data$treat - predict.lm3)**2)
+MSE.3
+
+##### model 4 #####
+
+lm.4 <- glm(treat ~ age^2 + re75 + re74 + married*age + hispanic + black, data = foo2, family = "binomial")
+cv.err.4 <- cv.glm(foo2, lm.4)
+
+cv.MSE.4 <- cv.err.4$delta[1]
+cv.MSE.4
+
+predict.lm4 <- predict(lm.4, test_set_data, type = "response")
+MSE.4 <- mean((test_set_data$treat - predict.lm4)**2)
+MSE.4
+
+##### model 5 #####
+
+lm.5 <- glm(treat ~ age + education^2 + black + hispanic + nodegree + re75 + re74, data = foo2, family = "binomial")
+cv.err.5 <- cv.glm(foo2, lm.5)
+
+cv.MSE.5 <- cv.err.5$delta[1]
+cv.MSE.5
+
+predict.lm5 <- predict(lm.5, test_set_data, type = "response")
+
+MSE.5 <- mean((test_set_data$treat - predict.lm5)**2)
+MSE.5
